@@ -1,7 +1,14 @@
 // app/api/chat/route.ts
 
 import OpenAI from "openai";
-import { getHotelById } from "@/app/hotels";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+
+import { PEMBROKE } from "@/app/hotels/pembroke";
+import { HOTEL_KILKENNY } from "@/app/hotels/hotel-kilkenny";
+import { LANGTONS } from "@/app/hotels/langtons";
+import { KILKENNY_ORMONDE } from "@/app/hotels/kilkenny-ormonde";
+import { NEWPARK } from "@/app/hotels/newpark";
+import { RIVER_COURT } from "@/app/hotels/river-court";
 
 export const runtime = "nodejs";
 
@@ -14,96 +21,167 @@ type ChatMessage = {
   content: string;
 };
 
-function buildSystemPrompt(hotel: {
+type Hotel = {
+  id: string;
   displayName: string;
   location: string;
   knowledge: string;
-}) {
+};
+
+const HOTEL_MAP: Record<string, Hotel> = {
+  [PEMBROKE.id]: PEMBROKE,
+  [HOTEL_KILKENNY.id]: HOTEL_KILKENNY,
+  [LANGTONS.id]: LANGTONS,
+  [KILKENNY_ORMONDE.id]: KILKENNY_ORMONDE,
+  [NEWPARK.id]: NEWPARK,
+  [RIVER_COURT.id]: RIVER_COURT,
+};
+
+const DEFAULT_HOTEL_ID = process.env.DEFAULT_HOTEL_ID || "pembroke";
+
+const HOTEL_KEYS = JSON.parse(
+  process.env.HOTEL_KEYS_JSON || "{}"
+) as Record<string, string>;
+
+const RATE_LIMIT_WINDOW = Number(process.env.RATE_LIMIT_WINDOW_SECONDS || 300);
+const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX_REQUESTS || 20);
+const SESSION_MAX = Number(process.env.SESSION_MAX_MESSAGES || 40);
+const DAILY_LIMIT = Number(
+  process.env.DAILY_HOTEL_MESSAGE_LIMIT_DEFAULT || 300
+);
+
+const ipStore = new Map<string, { count: number; resetAt: number }>();
+
+function getClientIp(req: Request) {
+  const xff = req.headers.get("x-forwarded-for");
+  if (xff) return xff.split(",")[0].trim();
+  return req.headers.get("x-real-ip") || "unknown";
+}
+
+function rateLimit(ip: string) {
+  const now = Date.now();
+  const entry = ipStore.get(ip);
+
+  if (!entry || now > entry.resetAt) {
+    ipStore.set(ip, {
+      count: 1,
+      resetAt: now + RATE_LIMIT_WINDOW * 1000,
+    });
+    return true;
+  }
+
+  if (entry.count >= RATE_LIMIT_MAX) {
+    return false;
+  }
+
+  entry.count += 1;
+  return true;
+}
+
+function getActiveHotel(reqUrl: string) {
+  const url = new URL(reqUrl);
+  const hotelId =
+    url.searchParams.get("hotel")?.toLowerCase() || DEFAULT_HOTEL_ID;
+
+  return HOTEL_MAP[hotelId] || HOTEL_MAP[DEFAULT_HOTEL_ID];
+}
+
+function validateHotelKey(req: Request, hotelId: string) {
+  const key = req.headers.get("x-hotel-key");
+  if (!HOTEL_KEYS[hotelId]) return false;
+  return key === HOTEL_KEYS[hotelId];
+}
+
+function buildSystemPrompt(hotel: Hotel) {
   return `
 You are a hotel concierge chatbot for ${hotel.displayName} in ${hotel.location}.
 
 STRICT RULES:
-- Use ONLY the hotel knowledge base provided below for hotel-specific facts.
-- If the user asks something not in the knowledge base, do NOT guess.
-  Say: "I’m not certain — I can check with reception." Then ask one short follow-up question if needed.
-- Keep answers short, clear, and helpful.
-- If the user asks for personal data, payment details, or anything sensitive: refuse and recommend contacting reception.
+- Use ONLY the hotel knowledge base provided below.
+- If unsure, say: "I’m not certain — I can check with reception."
+- Keep answers short and helpful.
 
 HOTEL KNOWLEDGE BASE:
 ${hotel.knowledge}
 `.trim();
 }
 
-function normalizeIncomingMessages(body: any): ChatMessage[] {
-  if (typeof body?.message === "string" && body.message.trim()) {
-    return [{ role: "user", content: body.message.trim() }];
-  }
-
-  if (Array.isArray(body?.messages)) {
-    const cleaned = body.messages
-      .filter(
-        (m: any) =>
-          m && typeof m.role === "string" && typeof m.content === "string"
-      )
-      .map((m: any) => ({
-        role: m.role as ChatMessage["role"],
-        content: m.content,
-      }))
-      .filter((m: ChatMessage) => ["user", "assistant"].includes(m.role));
-
-    if (cleaned.length) return cleaned;
-  }
-
-  return [];
-}
-
 export async function POST(req: Request) {
   try {
-    if (!process.env.OPENAI_API_KEY) {
+    const ip = getClientIp(req);
+
+    if (!rateLimit(ip)) {
       return Response.json(
-        { error: "Missing OPENAI_API_KEY in environment variables." },
-        { status: 500 }
+        { error: "Too many requests. Please slow down." },
+        { status: 429 }
+      );
+    }
+
+    const hotel = getActiveHotel(req.url);
+
+    if (!validateHotelKey(req, hotel.id)) {
+      return Response.json(
+        { error: "Unauthorized access." },
+        { status: 401 }
       );
     }
 
     const body = await req.json();
+    const messages = body?.messages || [];
 
-    // ✅ hotelId comes from the UI via URL-based selection
-    const hotelId =
-      typeof body?.hotelId === "string" ? body.hotelId.trim() : null;
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return Response.json({ error: "No messages provided." }, { status: 400 });
+    }
 
-    const hotel = getHotelById(hotelId);
-
-    const incoming = normalizeIncomingMessages(body);
-
-    if (!incoming.length) {
+    if (messages.length > SESSION_MAX) {
       return Response.json(
-        { error: "No message provided. Send { message: string } or { messages: [...] }." },
-        { status: 400 }
+        { error: "Session message limit reached." },
+        { status: 403 }
       );
     }
 
-    const messages: ChatMessage[] = [
-      { role: "system", content: buildSystemPrompt(hotel) },
-      ...incoming,
-    ];
+    const today = new Date().toISOString().split("T")[0];
+
+    const { count } = await supabaseAdmin
+      .from("usage_logs")
+      .select("*", { count: "exact", head: true })
+      .eq("hotel_id", hotel.id)
+      .gte("created_at", `${today}T00:00:00Z`);
+
+    if ((count || 0) >= DAILY_LIMIT) {
+      return Response.json(
+        { error: "Service temporarily unavailable." },
+        { status: 503 }
+      );
+    }
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      messages,
+      messages: [
+        { role: "system", content: buildSystemPrompt(hotel) },
+        ...messages,
+      ],
       temperature: 0.2,
     });
 
     const reply =
       completion.choices?.[0]?.message?.content?.trim() ||
-      "Sorry — I didn’t get a response. Please try again.";
+      "Please try again.";
 
-    return Response.json({
-      reply,
-      hotel: { id: hotel.id, displayName: hotel.displayName },
+    await supabaseAdmin.from("usage_logs").insert({
+      hotel_id: hotel.id,
+      user_question:
+        messages[messages.length - 1]?.content || "",
+      ai_reply: reply,
+      ip,
+      user_agent: req.headers.get("user-agent"),
     });
+
+    return Response.json({ reply });
   } catch (err: any) {
-    const message = err?.message || (typeof err === "string" ? err : "Unknown server error");
-    return Response.json({ error: message }, { status: 500 });
+    return Response.json(
+      { error: err?.message || "Server error." },
+      { status: 500 }
+    );
   }
 }
