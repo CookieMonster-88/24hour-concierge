@@ -1,186 +1,114 @@
 // app/api/chat/route.ts
+import { NextResponse } from "next/server";
 
-import OpenAI from "openai";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
-
-import { PEMBROKE } from "@/app/hotels/pembroke";
-import { HOTEL_KILKENNY } from "@/app/hotels/hotel-kilkenny";
-import { LANGTONS } from "@/app/hotels/langtons";
-import { KILKENNY_ORMONDE } from "@/app/hotels/kilkenny-ormonde";
-import { NEWPARK } from "@/app/hotels/newpark";
-import { RIVER_COURT } from "@/app/hotels/river-court";
+import { DEMO } from "../../hotels/demo";
+import { PEMBROKE } from "../../hotels/pembroke";
 
 export const runtime = "nodejs";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+type HotelLike = typeof DEMO;
 
-type ChatMessage = {
-  role: "system" | "user" | "assistant";
-  content: string;
+const HOTEL_MAP: Record<string, HotelLike> = {
+  demo: DEMO,
+  pembroke: PEMBROKE as unknown as HotelLike,
 };
 
-type Hotel = {
-  id: string;
-  displayName: string;
-  location: string;
-  knowledge: string;
-};
-
-const HOTEL_MAP: Record<string, Hotel> = {
-  [PEMBROKE.id]: PEMBROKE,
-  [HOTEL_KILKENNY.id]: HOTEL_KILKENNY,
-  [LANGTONS.id]: LANGTONS,
-  [KILKENNY_ORMONDE.id]: KILKENNY_ORMONDE,
-  [NEWPARK.id]: NEWPARK,
-  [RIVER_COURT.id]: RIVER_COURT,
-};
-
-const DEFAULT_HOTEL_ID = process.env.DEFAULT_HOTEL_ID || "pembroke";
-
-const HOTEL_KEYS = JSON.parse(
-  process.env.HOTEL_KEYS_JSON || "{}"
-) as Record<string, string>;
-
-const RATE_LIMIT_WINDOW = Number(process.env.RATE_LIMIT_WINDOW_SECONDS || 300);
-const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX_REQUESTS || 20);
-const SESSION_MAX = Number(process.env.SESSION_MAX_MESSAGES || 40);
-const DAILY_LIMIT = Number(
-  process.env.DAILY_HOTEL_MESSAGE_LIMIT_DEFAULT || 300
-);
-
-const ipStore = new Map<string, { count: number; resetAt: number }>();
-
-function getClientIp(req: Request) {
-  const xff = req.headers.get("x-forwarded-for");
-  if (xff) return xff.split(",")[0].trim();
-  return req.headers.get("x-real-ip") || "unknown";
+function getHotelById(hotelIdRaw: string | null | undefined): any {
+  const key = (hotelIdRaw || "").toLowerCase().trim();
+  return HOTEL_MAP[key] || HOTEL_MAP["demo"];
 }
 
-function rateLimit(ip: string) {
-  const now = Date.now();
-  const entry = ipStore.get(ip);
+function buildSystemPrompt(hotel: any) {
+  const name = hotel?.name || hotel?.displayName || "the hotel";
 
-  if (!entry || now > entry.resetAt) {
-    ipStore.set(ip, {
-      count: 1,
-      resetAt: now + RATE_LIMIT_WINDOW * 1000,
-    });
-    return true;
-  }
+  const phone =
+    hotel?.contact?.phone || "+353 (0)56 000 0000";
 
-  if (entry.count >= RATE_LIMIT_MAX) {
-    return false;
-  }
+  const email =
+    hotel?.contact?.email || "demo@concierge24.ie";
 
-  entry.count += 1;
-  return true;
-}
+  const kb =
+    typeof hotel?.knowledge === "string"
+      ? hotel.knowledge
+      : JSON.stringify(hotel, null, 2);
 
-function getActiveHotel(reqUrl: string) {
-  const url = new URL(reqUrl);
-  const hotelId =
-    url.searchParams.get("hotel")?.toLowerCase() || DEFAULT_HOTEL_ID;
-
-  return HOTEL_MAP[hotelId] || HOTEL_MAP[DEFAULT_HOTEL_ID];
-}
-
-function validateHotelKey(req: Request, hotelId: string) {
-  const key = req.headers.get("x-hotel-key");
-  if (!HOTEL_KEYS[hotelId]) return false;
-  return key === HOTEL_KEYS[hotelId];
-}
-
-function buildSystemPrompt(hotel: Hotel) {
   return `
-You are a hotel concierge chatbot for ${hotel.displayName} in ${hotel.location}.
+You are Concierge 24, a hotel assistant for "${name}".
 
 STRICT RULES:
-- Use ONLY the hotel knowledge base provided below.
-- If unsure, say: "I’m not certain — I can check with reception."
-- Keep answers short and helpful.
+
+1) Use ONLY the hotel knowledge base below.
+2) If the answer exists in the knowledge base → answer clearly and concisely.
+3) If the request involves staff action (extra towels, maintenance, housekeeping, wake-up call, etc.) respond EXACTLY as:
+
+Please contact reception directly for assistance.
+Phone: ${phone}
+
+4) If the information is NOT in the knowledge base and is informational (not urgent), respond EXACTLY as:
+
+I don’t have that detail in this assistant.
+
+You can contact reception:
+
+Phone: ${phone}
+Email: ${email}
+
+5) Do NOT mention “knowledge base”.
+6) Do NOT invent information.
+7) Keep responses short and professional.
 
 HOTEL KNOWLEDGE BASE:
-${hotel.knowledge}
+${kb}
 `.trim();
 }
 
 export async function POST(req: Request) {
   try {
-    const ip = getClientIp(req);
-
-    if (!rateLimit(ip)) {
-      return Response.json(
-        { error: "Too many requests. Please slow down." },
-        { status: 429 }
-      );
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ error: "Missing OPENAI_API_KEY" }, { status: 500 });
     }
 
-    const hotel = getActiveHotel(req.url);
+    const body = await req.json().catch(() => ({} as any));
+    const messages = Array.isArray(body?.messages) ? body.messages : [];
+    const hotelId = body?.hotelId;
 
-    if (!validateHotelKey(req, hotel.id)) {
-      return Response.json(
-        { error: "Unauthorized access." },
-        { status: 401 }
-      );
+    if (!messages.length) {
+      return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
 
-    const body = await req.json();
-    const messages = body?.messages || [];
+    const hotel = getHotelById(hotelId);
+    const systemPrompt = buildSystemPrompt(hotel);
 
-    if (!Array.isArray(messages) || messages.length === 0) {
-      return Response.json({ error: "No messages provided." }, { status: 400 });
-    }
-
-    if (messages.length > SESSION_MAX) {
-      return Response.json(
-        { error: "Session message limit reached." },
-        { status: 403 }
-      );
-    }
-
-    const today = new Date().toISOString().split("T")[0];
-
-    const { count } = await supabaseAdmin
-      .from("usage_logs")
-      .select("*", { count: "exact", head: true })
-      .eq("hotel_id", hotel.id)
-      .gte("created_at", `${today}T00:00:00Z`);
-
-    if ((count || 0) >= DAILY_LIMIT) {
-      return Response.json(
-        { error: "Service temporarily unavailable." },
-        { status: 503 }
-      );
-    }
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: buildSystemPrompt(hotel) },
-        ...messages,
-      ],
-      temperature: 0.2,
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+        temperature: 0.2,
+        messages: [{ role: "system", content: systemPrompt }, ...messages],
+      }),
     });
 
-    const reply =
-      completion.choices?.[0]?.message?.content?.trim() ||
-      "Please try again.";
+    if (!res.ok) {
+      const text = await res.text();
+      return NextResponse.json({ error: "OpenAI error", detail: text }, { status: 500 });
+    }
 
-    await supabaseAdmin.from("usage_logs").insert({
-      hotel_id: hotel.id,
-      user_question:
-        messages[messages.length - 1]?.content || "",
-      ai_reply: reply,
-      ip,
-      user_agent: req.headers.get("user-agent"),
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content ?? "";
+
+    return NextResponse.json({
+      text: content,
+      message: content,
+      content,
     });
-
-    return Response.json({ reply });
   } catch (err: any) {
-    return Response.json(
-      { error: err?.message || "Server error." },
+    return NextResponse.json(
+      { error: "Server error", detail: String(err?.message || err) },
       { status: 500 }
     );
   }
