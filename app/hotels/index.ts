@@ -1,34 +1,52 @@
 // app/hotels/index.ts
+//
+// This file exists only to provide a single place to import hotels + keep TypeScript happy.
+// Your hotels are NOT all the same shape (demo is structured; pembroke is string-based),
+// so we use a flexible type here.
 
+import { DEMO } from "./demo";
 import { PEMBROKE } from "./pembroke";
-import { HOTEL_KILKENNY } from "./hotel-kilkenny";
 
-// Add more hotels here later:
-// import { LANGTONS } from "./langtons";
-// import { ORMONDE } from "./kilkenny-ormonde";
-// import { NEWPARK } from "./newpark";
-// import { RIVER_COURT } from "./river-court";
-
-export type HotelKB = {
+export type HotelAny = {
   id: string;
-  displayName: string;
-  location: string;
+
+  // Demo-style fields
+  name?: string;
+  description?: string;
+  contact?: {
+    phone?: string;
+    email?: string;
+    address?: string;
+  };
+
+  // Pembroke-style fields
+  displayName?: string;
+  location?: string;
   website?: string;
-  knowledge: string;
+  knowledge?: string;
+
+  // Allow extra fields without TS blowing up
+  [key: string]: any;
 };
 
-export const HOTELS: Record<string, HotelKB> = {
-  [PEMBROKE.id]: PEMBROKE,
-  [HOTEL_KILKENNY.id]: HOTEL_KILKENNY,
-  // langtons: LANGTONS,
-  // "kilkenny-ormonde": ORMONDE,
-  // newpark: NEWPARK,
-  // "river-court": RIVER_COURT,
+export const HOTELS: Record<string, HotelAny> = {
+  demo: DEMO,
+  pembroke: PEMBROKE,
 };
 
-export const DEFAULT_HOTEL_ID = "pembroke";
+export function getHotelById(hotelIdRaw?: string | null): HotelAny {
+  const key = (hotelIdRaw || "").toLowerCase().trim();
+  return HOTELS[key] || HOTELS["demo"];
+}
 
-export function getHotelById(id?: string | null): HotelKB {
-  if (!id) return HOTELS[DEFAULT_HOTEL_ID];
-  return HOTELS[id] ?? HOTELS[DEFAULT_HOTEL_ID];
+export function getHotelName(hotel: HotelAny): string {
+  return hotel?.name || hotel?.displayName || "Hotel";
+}
+
+export function getHotelPhone(hotel: HotelAny): string {
+  return hotel?.contact?.phone || "+353 (0)56 000 0000";
+}
+
+export function getHotelEmail(hotel: HotelAny): string {
+  return hotel?.contact?.email || "demo@concierge24.ie";
 }
