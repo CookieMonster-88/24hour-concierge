@@ -1,149 +1,134 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-type ChatMsg = { role: "user" | "assistant"; content: string };
+type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
 
-function getHotelFromParams(params: URLSearchParams) {
-  return params.get("hotel")?.toLowerCase() || "pembroke";
-}
-
-function getHotelKeyFromParams(params: URLSearchParams) {
-  return params.get("k") || "";
-}
-
-function prettyHotelName(hotel: string) {
-  if (hotel === "pembroke") return "Pembroke Hotel";
-  return hotel.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+function getHotelFromParams(params: URLSearchParams | null) {
+  const raw = params?.get("hotel")?.trim();
+  return raw && raw.length > 0 ? raw : "demo";
 }
 
 export default function ChatClient() {
-  const params = useSearchParams();
+  const searchParams = useSearchParams();
+  const hotel = useMemo(() => getHotelFromParams(searchParams), [searchParams]);
 
-  const hotel = useMemo(() => getHotelFromParams(params), [params]);
-  const hotelKey = useMemo(() => getHotelKeyFromParams(params), [params]);
-
-  const [messages, setMessages] = useState<ChatMsg[]>([
+  const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: "assistant",
-      content:
-        "Hi — I’m your Concierge 24 assistant. Ask me anything about the hotel.",
+      content: "Hi — I’m your Concierge 24 assistant. Ask me anything about the hotel.",
     },
   ]);
+
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    setError(null);
-    setMessages([
-      {
-        role: "assistant",
-        content:
-          "Hi — I’m your Concierge 24 assistant. Ask me anything about the hotel.",
-      },
-    ]);
-    setInput("");
-  }, [hotel]);
+    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages.length]);
 
-  async function send() {
-    const text = input.trim();
-    if (!text || loading) return;
+  async function sendMessage() {
+    const trimmed = input.trim();
+    if (!trimmed || isSending) return;
 
-    setError(null);
-    setLoading(true);
-
-    const nextMessages: ChatMsg[] = [
+    const nextMessages: ChatMessage[] = [
       ...messages,
-      { role: "user", content: text },
+      { role: "user", content: trimmed },
     ];
+
     setMessages(nextMessages);
     setInput("");
+    setIsSending(true);
 
     try {
-      const res = await fetch(`/api/chat?hotel=${encodeURIComponent(hotel)}`, {
+      const res = await fetch("/api/chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-hotel-key": hotelKey,
-        },
-        body: JSON.stringify({ messages: nextMessages }),
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          hotelId: hotel,
+          messages: nextMessages,
+        }),
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data?.error || "Request failed.");
-        setLoading(false);
-        return;
-      }
+      const data = await res.json().catch(() => ({}));
+      const assistantText =
+        data?.content || data?.text || data?.message || "Something went wrong.";
 
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: data.reply },
+        { role: "assistant", content: assistantText },
       ]);
-    } catch (e: any) {
-      setError(e?.message || "Network error.");
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "Network error. Please try again." },
+      ]);
     } finally {
-      setLoading(false);
+      setIsSending(false);
     }
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
-      <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-white/5 shadow-xl backdrop-blur p-5">
-        <div className="mb-4">
-          <div className="text-sm uppercase tracking-wide text-white/60">
-            Concierge 24
-          </div>
-          <div className="text-xl font-semibold">{prettyHotelName(hotel)}</div>
-          <div className="text-sm text-white/60">
-            Ask about check-in, parking, breakfast, policies, and what’s nearby.
-          </div>
-        </div>
-
-        <div className="h-[420px] overflow-y-auto rounded-xl border border-white/10 bg-black/20 p-4 space-y-3">
-          {messages.map((m, i) => (
-            <div
-              key={i}
-              className={m.role === "user" ? "flex justify-end" : "flex justify-start"}
-            >
-              <div
-                className={
-                  m.role === "user"
-                    ? "max-w-[85%] rounded-2xl bg-white text-black px-4 py-2"
-                    : "max-w-[85%] rounded-2xl bg-white/10 text-white px-4 py-2"
-                }
-              >
-                {m.content}
-              </div>
+    <div className="min-h-screen bg-[#060607] text-white">
+      <div className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-4 py-10">
+        <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-white/5 p-6">
+          <div className="mb-4">
+            <div className="text-xs tracking-[0.22em] text-white/50">CONCIERGE 24</div>
+            <div className="mt-1 text-xl font-semibold">Demo</div>
+            <div className="mt-1 text-sm text-white/60">
+              Ask about check-in, parking, breakfast, policies, and what’s nearby.
             </div>
-          ))}
-          {loading && <div className="text-sm text-white/60">Thinking…</div>}
-        </div>
+          </div>
 
-        {error && <div className="mt-3 text-sm text-red-300">{error}</div>}
+          <div className="h-[420px] overflow-y-auto rounded-2xl border border-white/10 bg-black/20 p-4">
+            {messages.map((m, idx) => (
+              <div
+                key={idx}
+                className={`mb-3 flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
+              >
+                <div
+                  className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                    m.role === "user"
+                      ? "bg-white text-black"
+                      : "bg-white/10 text-white whitespace-pre-wrap"
+                  }`}
+                >
+                  {m.content}
+                </div>
+              </div>
+            ))}
+            <div ref={scrollRef} />
+          </div>
 
-        <div className="mt-4 flex gap-2">
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") send();
-            }}
-            placeholder="Type your question…"
-            className="flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-3 outline-none"
-          />
-          <button
-            onClick={send}
-            disabled={loading}
-            className="rounded-xl bg-white text-black px-4 py-3 font-semibold disabled:opacity-50"
-          >
-            Send
-          </button>
+          <div className="mt-4 flex gap-3">
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") sendMessage();
+              }}
+              placeholder="Type your question…"
+              className="flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none placeholder:text-white/30"
+            />
+            <button
+              onClick={sendMessage}
+              disabled={isSending}
+              className="rounded-xl bg-white px-5 py-3 text-sm font-semibold text-black disabled:opacity-60"
+            >
+              {isSending ? "Sending…" : "Send"}
+            </button>
+          </div>
+
+          <div className="mt-3 text-xs text-white/35">
+            Demo mode: no key required.
+          </div>
         </div>
       </div>
-    </main>
+    </div>
   );
 }
