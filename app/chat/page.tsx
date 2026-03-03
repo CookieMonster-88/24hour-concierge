@@ -1,3 +1,4 @@
+// app/chat/page.tsx
 import { Suspense } from "react";
 import ChatClient from "../ChatClient";
 

@@ -2,7 +2,7 @@
 import Link from "next/link";
 
 export default function HomePage() {
-  const demoHref = "/chat?hotel=pembroke&k=pembroke123";
+  const demoHref = "/chat?hotel=demo";
 
   return (
     <main className="min-h-screen bg-[#060607] text-white">
