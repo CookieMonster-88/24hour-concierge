@@ -11,15 +11,44 @@ type ChatMessage = {
 
 function getHotelFromParams(params: URLSearchParams | null) {
   const raw = params?.get("hotel")?.trim();
-  // ✅ Default should be demo (public)
   return raw && raw.length > 0 ? raw : "demo";
 }
 
 function getHotelKeyFromParams(params: URLSearchParams | null) {
-  // ✅ Support both k= and key= (you've used k= in your links)
   const raw = (params?.get("k") || params?.get("key") || "").trim();
   return raw.length > 0 ? raw : "";
 }
+
+function renderMessage(content: string) {
+  const urlRegex = /(https?:\/\/[^\s)]+)/g;
+  const lines = content.split("\n");
+
+  return lines.map((line, lineIdx) => {
+    const parts = line.split(urlRegex);
+    return (
+      <span key={lineIdx}>
+        {parts.map((part, partIdx) =>
+          urlRegex.test(part) ? (
+            
+              key={partIdx}
+              href={part}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline text-blue-300 hover:text-blue-200 break-all"
+            >
+              {part.includes("maps") ? "📍 Open in Google Maps" : part}
+            </a>
+          ) : (
+            <span key={partIdx}>{part}</span>
+          )
+        )}
+        {lineIdx < lines.length - 1 && <br />}
+      </span>
+    );
+  });
+}
+
+const LANGUAGES = ["EN", "FR", "DE", "ES", "IT", "ZH", "AR"];
 
 export default function ChatClient() {
   const searchParams = useSearchParams();
@@ -27,14 +56,13 @@ export default function ChatClient() {
   const hotel = useMemo(() => getHotelFromParams(searchParams), [searchParams]);
   const hotelKey = useMemo(() => getHotelKeyFromParams(searchParams), [searchParams]);
 
-  // Demo should never require a key.
   const requiresKey = hotel !== "demo";
   const isUnauthorized = requiresKey && !hotelKey;
 
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: "assistant",
-      content: "Hi — I’m your Concierge 24 assistant. Ask me anything about the hotel.",
+      content: "Hi — I'm your Concierge 24 assistant. Ask me anything about the hotel.",
     },
   ]);
   const [input, setInput] = useState("");
@@ -54,8 +82,7 @@ export default function ChatClient() {
         ...prev,
         {
           role: "assistant",
-          content:
-            "Unauthorized link. Please ask reception for the official QR code provided by the hotel.",
+          content: "Unauthorized link. Please ask reception for the official QR code provided by the hotel.",
         },
       ]);
       setInput("");
@@ -82,7 +109,6 @@ export default function ChatClient() {
 
       const data = await res.json().catch(() => ({}));
 
-      // ✅ Your API returns { content }, not { text } or { message }
       const assistantText =
         typeof data?.content === "string"
           ? data.content
@@ -104,13 +130,29 @@ export default function ChatClient() {
     <div className="min-h-screen bg-[#060607] text-white">
       <div className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-4 py-10">
         <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-white/5 p-6 shadow-[0_0_80px_rgba(0,0,0,0.6)]">
+          
           <div className="mb-4">
             <div className="text-xs tracking-[0.22em] text-white/50">CONCIERGE 24</div>
             <div className="mt-1 text-xl font-semibold">
               {hotel === "demo" ? "Demo" : hotel.charAt(0).toUpperCase() + hotel.slice(1)}
             </div>
             <div className="mt-1 text-sm text-white/60">
-              Ask about check-in, parking, breakfast, policies, and what’s nearby.
+              Ask about check-in, parking, breakfast, policies, and what's nearby.
+            </div>
+
+            {/* Language indicator */}
+            <div className="mt-3 flex items-center gap-2">
+              <span className="text-xs text-white/30 tracking-widest uppercase">Speaks</span>
+              <div className="flex gap-1">
+                {LANGUAGES.map((lang) => (
+                  <span
+                    key={lang}
+                    className="rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium tracking-wider text-white/40"
+                  >
+                    {lang}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -127,11 +169,11 @@ export default function ChatClient() {
                 className={`mb-3 flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                  className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                     m.role === "user" ? "bg-white text-black" : "bg-white/10 text-white"
                   }`}
                 >
-                  {m.content}
+                  {renderMessage(m.content)}
                 </div>
               </div>
             ))}
