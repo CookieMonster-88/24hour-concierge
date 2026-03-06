@@ -19,37 +19,33 @@ function getHotelKeyFromParams(params: URLSearchParams | null) {
   return raw.length > 0 ? raw : "";
 }
 
-function isUrl(str: string) {
-  return /^https?:\/\//.test(str);
-}
-
 function renderMessage(content: string) {
-  const urlRegex = /(https?:\/\/[^\s)]+)/g;
-  const lines = content.split("\n");
-
-  return lines.map((line, lineIdx) => {
-    const parts = line.split(urlRegex);
-    return (
-      <span key={lineIdx}>
-        {parts.map((part, partIdx) =>
-          isUrl(part) ? (
+  const parts = content.split(/(https?:\/\/[^\s)]+)/g);
+  return (
+    <span>
+      {parts.map((part, i) => {
+        if (/^https?:\/\//.test(part)) {
+          const label = part.includes("maps") ? "📍 Open in Google Maps" : part;
+          return (
             
-              key={partIdx}
+              key={i}
               href={part}
               target="_blank"
               rel="noopener noreferrer"
               className="underline text-blue-300 hover:text-blue-200 break-all"
             >
-              {part.includes("maps") ? "📍 Open in Google Maps" : part}
+              {label}
             </a>
-          ) : (
-            <span key={partIdx}>{part}</span>
-          )
-        )}
-        {lineIdx < lines.length - 1 && <br />}
-      </span>
-    );
-  });
+          );
+        }
+        return (
+          <span key={i} style={{ whiteSpace: "pre-wrap" }}>
+            {part}
+          </span>
+        );
+      })}
+    </span>
+  );
 }
 
 const LANGUAGES = ["EN", "FR", "DE", "ES", "IT", "ZH", "AR"];
@@ -117,14 +113,17 @@ export default function ChatClient() {
         typeof data?.content === "string"
           ? data.content
           : typeof data?.text === "string"
-            ? data.text
-            : typeof data?.message === "string"
-              ? data.message
-              : "Something went wrong. Please try again.";
+          ? data.text
+          : typeof data?.message === "string"
+          ? data.message
+          : "Something went wrong. Please try again.";
 
       setMessages((prev) => [...prev, { role: "assistant", content: assistantText }]);
     } catch {
-      setMessages((prev) => [...prev, { role: "assistant", content: "Network error. Please try again." }]);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "Network error. Please try again." },
+      ]);
     } finally {
       setIsSending(false);
     }
@@ -134,7 +133,6 @@ export default function ChatClient() {
     <div className="min-h-screen bg-[#060607] text-white">
       <div className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-4 py-10">
         <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-white/5 p-6 shadow-[0_0_80px_rgba(0,0,0,0.6)]">
-
           <div className="mb-4">
             <div className="text-xs tracking-[0.22em] text-white/50">CONCIERGE 24</div>
             <div className="mt-1 text-xl font-semibold">
@@ -143,7 +141,6 @@ export default function ChatClient() {
             <div className="mt-1 text-sm text-white/60">
               Ask about check-in, parking, breakfast, policies, and what's nearby.
             </div>
-
             <div className="mt-3 flex items-center gap-2">
               <span className="text-xs text-white/30 tracking-widest uppercase">Speaks</span>
               <div className="flex gap-1">
