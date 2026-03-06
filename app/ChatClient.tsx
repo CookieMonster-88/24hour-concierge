@@ -19,6 +19,10 @@ function getHotelKeyFromParams(params: URLSearchParams | null) {
   return raw.length > 0 ? raw : "";
 }
 
+function isUrl(str: string) {
+  return /^https?:\/\//.test(str);
+}
+
 function renderMessage(content: string) {
   const urlRegex = /(https?:\/\/[^\s)]+)/g;
   const lines = content.split("\n");
@@ -28,7 +32,7 @@ function renderMessage(content: string) {
     return (
       <span key={lineIdx}>
         {parts.map((part, partIdx) =>
-          urlRegex.test(part) ? (
+          isUrl(part) ? (
             
               key={partIdx}
               href={part}
@@ -130,7 +134,7 @@ export default function ChatClient() {
     <div className="min-h-screen bg-[#060607] text-white">
       <div className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-4 py-10">
         <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-white/5 p-6 shadow-[0_0_80px_rgba(0,0,0,0.6)]">
-          
+
           <div className="mb-4">
             <div className="text-xs tracking-[0.22em] text-white/50">CONCIERGE 24</div>
             <div className="mt-1 text-xl font-semibold">
@@ -140,7 +144,6 @@ export default function ChatClient() {
               Ask about check-in, parking, breakfast, policies, and what's nearby.
             </div>
 
-            {/* Language indicator */}
             <div className="mt-3 flex items-center gap-2">
               <span className="text-xs text-white/30 tracking-widest uppercase">Speaks</span>
               <div className="flex gap-1">
