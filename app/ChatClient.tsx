@@ -19,33 +19,33 @@ function getHotelKeyFromParams(params: URLSearchParams | null) {
   return raw.length > 0 ? raw : "";
 }
 
-function renderMessage(content: string) {
+function MessageContent({ content }: { content: string }) {
   const parts = content.split(/(https?:\/\/[^\s)]+)/g);
-  return (
-    <span>
-      {parts.map((part, i) => {
-        if (/^https?:\/\//.test(part)) {
-          const label = part.includes("maps") ? "📍 Open in Google Maps" : part;
-          return (
-            
-              key={i}
-              href={part}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline text-blue-300 hover:text-blue-200 break-all"
-            >
-              {label}
-            </a>
-          );
-        }
-        return (
-          <span key={i} style={{ whiteSpace: "pre-wrap" }}>
-            {part}
-          </span>
-        );
-      })}
-    </span>
-  );
+  const elements: React.ReactNode[] = [];
+
+  parts.forEach((part, i) => {
+    if (/^https?:\/\//.test(part)) {
+      elements.push(
+        React.createElement(
+          "a",
+          {
+            key: i,
+            href: part,
+            target: "_blank",
+            rel: "noopener noreferrer",
+            className: "underline text-blue-300 hover:text-blue-200 break-all",
+          },
+          part.includes("maps") ? "📍 Open in Google Maps" : part
+        )
+      );
+    } else {
+      elements.push(
+        React.createElement("span", { key: i, style: { whiteSpace: "pre-wrap" } }, part)
+      );
+    }
+  });
+
+  return React.createElement("span", null, ...elements);
 }
 
 const LANGUAGES = ["EN", "FR", "DE", "ES", "IT", "ZH", "AR"];
@@ -173,7 +173,7 @@ export default function ChatClient() {
                     m.role === "user" ? "bg-white text-black" : "bg-white/10 text-white"
                   }`}
                 >
-                  {renderMessage(m.content)}
+                  <MessageContent content={m.content} />
                 </div>
               </div>
             ))}
