@@ -48,7 +48,7 @@ function MessageContent({ content }: { content: string }) {
   return React.createElement("span", null, ...elements);
 }
 
-const LANGUAGES = ["EN", "FR", "DE", "ES", "IT", "ZH", "AR"];
+const LANGUAGES = ["EN", "GA", "FR", "DE", "ES", "IT", "PL", "ZH", "AR"];
 
 export default function ChatClient() {
   const searchParams = useSearchParams();
@@ -143,7 +143,7 @@ export default function ChatClient() {
             </div>
             <div className="mt-3 flex items-center gap-2">
               <span className="text-xs text-white/30 tracking-widest uppercase">Speaks</span>
-              <div className="flex gap-1">
+              <div className="flex gap-1 flex-wrap">
                 {LANGUAGES.map((lang) => (
                   <span
                     key={lang}
